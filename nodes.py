@@ -310,3 +310,22 @@ def route_after_planning(state: AgentState):
     if state.get("needs_followup"):
         return "draft"
     return "end"
+
+def human_review_node(state: AgentState) -> AgentState:
+    print(f"\n[DEBUG] Awaiting human approval for draft:\n{state.get('draft_reply')}")
+    return state
+
+def finalize_node(state: AgentState) -> AgentState:
+    approved = state.get("approved")
+
+    if state.get("needs_followup") is False:
+        state["status"] = "no_action_needed"
+    elif approved is True:
+        state["status"] = "approved_ready_to_send"
+    elif approved is False:
+        state["status"] = "rejected_discarded"
+    else:
+        state["status"] = "pending_approval"
+
+    print(f"\n[DEBUG] Finalized. Status: {state['status']}")
+    return state
