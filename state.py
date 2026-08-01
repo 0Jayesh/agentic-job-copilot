@@ -20,3 +20,4 @@ class AgentState(TypedDict):
     needs_followup: Optional[bool]
     draft_reply: Optional[str]
     approved: Optional[bool]
+    past_company_notes: Optional[list]

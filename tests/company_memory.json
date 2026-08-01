@@ -1,0 +1,14 @@
+{
+  "TestCorp": [
+    "Interviewed March 2026, rejected - lacked Spark experience",
+    "Reached out again May 2026, no response"
+  ],
+  "Google": [
+    "Fit score 100.0, status: pending_approval",
+    "Fit score 100.0, status: approved_ready_to_send",
+    "Fit score 100.0, status: rejected_discarded"
+  ],
+  "Not mentioned": [
+    "Fit score 23.0, status: no_action_needed"
+  ]
+}

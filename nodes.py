@@ -6,6 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 import re
 from education_maps import extract_education_tokens
+from memory import save_company_memory, get_company_memory
 
 llm = ChatGoogleGenerativeAI(model="gemini-3-flash-preview")
 
@@ -327,5 +328,15 @@ def finalize_node(state: AgentState) -> AgentState:
     else:
         state["status"] = "pending_approval"
 
+    note = f"Fit score {state.get('fit_score')}, status: {state['status']}"
+    save_company_memory(state.get("company"), note)
+
     print(f"\n[DEBUG] Finalized. Status: {state['status']}")
+    return state
+
+def memory_lookup_node(state: AgentState) -> AgentState:
+    company = state.get("company")
+    past_notes = get_company_memory(company)
+    state["past_company_notes"] = past_notes
+    print(f"\n[DEBUG] Memory lookup for '{company}': {past_notes}")
     return state
