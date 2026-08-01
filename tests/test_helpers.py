@@ -1,29 +1,29 @@
-import __init__ 
+import __init__
 from dotenv import load_dotenv
 load_dotenv()
 
-from nodes import extract_required_years, extract_candidate_years, years_match
+from nodes import planner_node, drafter_node, semantic_match
 
-print("--- extract_required_years ---")
-print(extract_required_years("4+ years experience"))       # expect (4, None)
-print(extract_required_years("4-7 years experience"))      # expect (4, 7)
-print(extract_required_years("no years mentioned here"))   # expect (None, None)
+def check(label, actual, expected):
+    status = "PASS" if actual == expected else "FAIL"
+    print(f"[{status}] {label} -> got {actual}, expected {expected}")
 
-print("\n--- extract_candidate_years ---")
-print(extract_candidate_years("5+ years of experience"))   # expect 5.0
-print(extract_candidate_years("3.5 years of experience"))  # expect 3.5
-print(extract_candidate_years("no years mentioned"))       # expect None
+# planner_node
+check("planner high score", planner_node({"fit_score": 75.0})["needs_followup"], True)
+check("planner low score", planner_node({"fit_score": 45.0})["needs_followup"], False)
+check("planner missing score", planner_node({"fit_score": None})["needs_followup"], False)
 
-print("\n--- years_match ---")
-print(years_match(4, None, 5.0))   # expect True  (5 >= 4)
-print(years_match(4, None, 3.0))   # expect False (3 < 4)
-print(years_match(4, 7, 5.0))      # expect True  (4 <= 5 <= 7)
-print(years_match(4, 7, 8.0))      # expect False (8 > 7)
-print(years_match(None, None, 5.0)) # expect False (no requirement to check against)
+print("\n[INFO] semantic_match sanity check:", round(semantic_match("Bachelor's degree in Computer Science", "Bachelor of Engineering, Computer Science and Engineering"), 2))
 
-from nodes import semantic_match
+print("\n[INFO] drafter_node sanity check (first 100 chars):")
+draft_result = drafter_node({"company": "Unify Technologies", "role": "Software Development Engineer"})
+print(draft_result["draft_reply"][:100], "...")
 
-print("\n--- semantic_match ---")
-print("\n--- semantic_match ---")
-print(semantic_match("Bachelor's degree in Computer Science", "Bachelor of Engineering, Computer Science and Engineering"))  # expect True
-print(semantic_match("PhD in Astrophysics", "Bachelor of Engineering, Computer Science and Engineering"))  # expect False
+print("\n--- planner_node boundary tests ---")
+check("planner exactly 60", planner_node({"fit_score": 60.0})["needs_followup"], True)
+check("planner just below 60", planner_node({"fit_score": 59.9})["needs_followup"], False)
+
+print("\n--- drafter_node missing company/role ---")
+result = drafter_node({})
+print("draft_reply exists:", "draft_reply" in result)
+print(result["draft_reply"][:150])

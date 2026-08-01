@@ -278,3 +278,35 @@ def score_node(state: AgentState, resume_text: str) -> AgentState:
     print(f"\n[DEBUG] Pipeline Completed! Final Candidate Fit Score: {state['fit_score']}%")
 
     return state
+
+def planner_node(state: AgentState) -> AgentState:
+    fit_score = state.get("fit_score") or 0.0
+
+    if fit_score >= 60:
+        state["needs_followup"] = True
+    else:
+        state["needs_followup"] = False
+
+    print(f"\n[DEBUG] Planner Decision: fit_score={fit_score} -> needs_followup={state['needs_followup']}")
+    return state
+
+def drafter_node(state: AgentState) -> AgentState:
+    company = state.get("company", "the company")
+    role = state.get("role", "the role")
+
+    prompt = f"""Write a short, professional follow-up email expressing interest in the {role} position at {company}. Keep it under 100 words."""
+
+    response = llm.invoke(prompt)
+    text = ""
+    for block in response.content:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block["text"]
+
+    state["draft_reply"] = text
+    print(f"\n[DEBUG] Draft generated:\n{text}")
+    return state
+
+def route_after_planning(state: AgentState):
+    if state.get("needs_followup"):
+        return "draft"
+    return "end"

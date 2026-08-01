@@ -17,3 +17,6 @@ class AgentState(TypedDict):
     # New additions for this step - separate category matching
     education_match: Optional[bool]
     experience_match: Optional[bool]
+    needs_followup: Optional[bool]
+    draft_reply: Optional[str]
+    approved: Optional[bool]
