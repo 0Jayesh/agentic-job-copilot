@@ -32,3 +32,21 @@ print("\n--- finalize_node ---")
 check("finalize approved", finalize_node({"approved": True, "needs_followup": True})["status"], "approved_ready_to_send")
 check("finalize rejected", finalize_node({"approved": False, "needs_followup": True})["status"], "rejected_discarded")
 check("finalize no followup needed", finalize_node({"approved": None, "needs_followup": False})["status"], "no_action_needed")
+
+from nodes import invoke_with_fallback
+
+print("\n--- invoke_with_fallback ---")
+result = invoke_with_fallback("Say hello in exactly 3 words.")
+print("Result:", result)
+
+print("\n--- Testing generation_failed handling (force total failure) ---")
+import nodes
+
+original_invoke = nodes.invoke_with_fallback
+nodes.invoke_with_fallback = lambda prompt, max_retries=2: None  # force total failure
+
+result = nodes.drafter_node({"company": "TestCo", "role": "Engineer"})
+print("draft_reply:", result.get("draft_reply"))
+print("status:", result.get("status"))
+
+nodes.invoke_with_fallback = original_invoke  # restore real function for any tests after this

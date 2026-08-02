@@ -8,7 +8,71 @@ import re
 from education_maps import extract_education_tokens
 from memory import save_company_memory, get_company_memory
 
-llm = ChatGoogleGenerativeAI(model="gemini-3-flash-preview")
+# llm = ChatGoogleGenerativeAI(model="gemini-3-flash-preview")
+# llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
+llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
+
+from langchain_groq import ChatGroq
+import time
+
+llm_fallback = ChatGroq(model="llama-3.3-70b-versatile")
+
+def invoke_with_fallback(prompt: str, max_retries: int = 2) -> str:
+    for attempt in range(max_retries):
+        try:
+            response = llm.invoke(prompt)
+            for block in response.content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    return block["text"]
+            return ""
+        except Exception as e:
+            wait = 2 ** attempt
+            print(f"\n[DEBUG] Gemini call failed (attempt {attempt+1}): {e}. Retrying in {wait}s...")
+            time.sleep(wait)
+
+    print("\n[DEBUG] Gemini exhausted retries. Falling back to Groq.")
+    try:
+        response = llm_fallback.invoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"\n[DEBUG] Groq fallback also failed: {e}")
+        return None
+
+def parse_llm_response_text(text: str, state: AgentState) -> AgentState:
+    """Extracts fields from raw LLM text, robust to minor formatting differences
+    (markdown bold, capitalization, leading symbols) since different providers
+    (Gemini vs Groq) may format their output slightly differently."""
+
+    def clean_line(line: str) -> str:
+        return line.strip().lstrip("*#-").strip()
+
+    for raw_line in text.split("\n"):
+        line = clean_line(raw_line)
+        line_lower = line.lower()
+
+        if line_lower.startswith("company:"):
+            state["company"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("role:"):
+            state["role"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("requirements:"):
+            raw_reqs = line.split(":", 1)[1].strip()
+            state["requirements"] = [r.strip() for r in raw_reqs.split(",") if r.strip() and r.strip().lower() != "none"]
+        elif line_lower.startswith("education:"):
+            state["education_required"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("experience:"):
+            state["experience_required"] = line.split(":", 1)[1].strip()
+        elif line_lower.startswith("years of experience:"):
+            state["years_of_experience_required"] = line.split(":", 1)[1].strip()
+
+    # Safety check: if we got NOTHING usable, this is a parse failure, not "no info in JD"
+    if not state.get("company") and not state.get("role"):
+        state["status"] = "generation_failed"
+        print("\n[DEBUG] Parse produced no usable fields - flagging as generation_failed, not a false empty-JD pass.")
+        return state
+
+    state["status"] = "parsed"
+    return state
+
 
 def parse_node(state: AgentState) -> AgentState:
     prompt = f"""Extract information from this text into exactly these following categories:
@@ -24,32 +88,56 @@ Output should be either in format : a-b OR a+ ( 0 for freshers if not found any 
 
 Text: {state['raw_input']}"""
 
-    response = llm.invoke(prompt)
-    text = ""
-    for block in response.content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text = block["text"]
+    text = invoke_with_fallback(prompt)
+    print(f"\n[DEBUG] RAW TEXT FROM LLM:\n---\n{text}\n---")
+    if text is None:
+        state["status"] = "generation_failed"
+        print("\n[DEBUG] Parser FAILED - both providers down. Halting with error status.")
+        return state
 
-    for line in text.split("\n"):
-        if line.startswith("Company:"):
-            state["company"] = line.replace("Company:", "").strip()
-        if line.startswith("Role:"):
-            state["role"] = line.replace("Role:", "").strip()
-        # if line.startswith("Requirements:"):
-        #     state["requirements"] = line.replace("Requirements:", "").strip()
-        if line.startswith("Requirements:"):
-            raw_reqs = line.replace("Requirements:", "").strip()
-            # state["requirements"] = [r.strip() for r in raw_reqs.split(",") if r.strip()]
-            state["requirements"] = [r.strip() for r in raw_reqs.split(",") if r.strip() and r.strip().lower() != "none"]
-        if line.startswith("Education:"):
-            state["education_required"] = line.replace("Education:", "").strip()
-        if line.startswith("Experience:"):
-            state["experience_required"] = line.replace("Experience:", "").strip()
-        if line.startswith("Years of Experience:"):
-            state["years_of_experience_required"] = line.replace("Years of Experience:", "").strip()
+    return parse_llm_response_text(text, state)
 
-    state["status"] = "parsed"
-    return state
+# def parse_node(state: AgentState) -> AgentState:
+#     prompt = f"""Extract information from this text into exactly these following categories:
+# Company: <name>
+# Role: <title>
+# Requirements: <comma-separated list of TOOL/LIBRARY/SKILLS/TechnologyName names only. Don't limit the search in any section, search everywhere in JD
+# Return only clean keywords or tool names, NOT full descriptions or long phrases. Example Good: PyTorch, Docker, MLOps, Spark, Data Pipelines. 
+# Example Bad: Maintain and optimize training data pipelines, Prior hands on experience in ML model.>
+# Education: <the education requirement described in one short phrase, or "None" if not mentioned>
+# Experience: <any descriptive experience requirement (not years, not tools) in one short phrase, or "None" if not mentioned>
+# Years of Experience: <specific years of experience required for the role - either in range ( eg: 4 - 7 ), or minimum number ( eg: 4+ ).
+# Output should be either in format : a-b OR a+ ( 0 for freshers if not found any such relevant information )>
+
+# Text: {state['raw_input']}"""
+
+#     # text = invoke_with_fallback(prompt)
+#     text = invoke_with_fallback(prompt)
+#     if text is None:
+#         state["status"] = "generation_failed"
+#         print("\n[DEBUG] Parser FAILED - both providers down. Halting with error status.")
+#         return state
+
+#     for line in text.split("\n"):
+#         if line.startswith("Company:"):
+#             state["company"] = line.replace("Company:", "").strip()
+#         if line.startswith("Role:"):
+#             state["role"] = line.replace("Role:", "").strip()
+#         # if line.startswith("Requirements:"):
+#         #     state["requirements"] = line.replace("Requirements:", "").strip()
+#         if line.startswith("Requirements:"):
+#             raw_reqs = line.replace("Requirements:", "").strip()
+#             # state["requirements"] = [r.strip() for r in raw_reqs.split(",") if r.strip()]
+#             state["requirements"] = [r.strip() for r in raw_reqs.split(",") if r.strip() and r.strip().lower() != "none"]
+#         if line.startswith("Education:"):
+#             state["education_required"] = line.replace("Education:", "").strip()
+#         if line.startswith("Experience:"):
+#             state["experience_required"] = line.replace("Experience:", "").strip()
+#         if line.startswith("Years of Experience:"):
+#             state["years_of_experience_required"] = line.replace("Years of Experience:", "").strip()
+
+#     state["status"] = "parsed"
+#     return state
 
 
 embedder = SentenceTransformer("all-MiniLM-L6-v2")
@@ -297,13 +385,17 @@ def drafter_node(state: AgentState) -> AgentState:
 
     prompt = f"""Write a short, professional follow-up email expressing interest in the {role} position at {company}. Keep it under 100 words."""
 
-    response = llm.invoke(prompt)
-    text = ""
-    for block in response.content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text = block["text"]
+    # text = invoke_with_fallback(prompt)
+    # state["draft_reply"] = text
 
-    state["draft_reply"] = text
+    text = invoke_with_fallback(prompt)
+    if text is None:
+        state["draft_reply"] = None
+        state["status"] = "generation_failed"
+        print("\n[DEBUG] Drafter FAILED - both providers down. Halting with error status.")
+    else:
+        state["draft_reply"] = text
+
     print(f"\n[DEBUG] Draft generated:\n{text}")
     return state
 
