@@ -7,3 +7,6 @@ company_memory.sqlite3
 tests/test_chroma_memory/
 tests/test_migration_chroma/
 tests/test_wiring_chroma/
+test_mlflow.db
+mlflow.db
+mlruns/

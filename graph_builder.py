@@ -3,6 +3,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from state import AgentState
 from nodes import parse_node, score_node, planner_node, drafter_node, route_after_planning, human_review_node, finalize_node, memory_lookup_node
 from resume import RESUME_TEXT
+from mlflow_setup import enable_tracing
+
+enable_tracing()
 
 def score_node_wrapper(state: AgentState) -> AgentState:
     return score_node(state, RESUME_TEXT)

@@ -70,7 +70,9 @@ EXPECTED_HASHES = {
     "memory.py": "182a259474798ccafa5efbad19f9a5b6c7401925dbdcfe63e016d51e957cdfce",
     "education_maps.py": "803024213b617f60e809ec8e045ad0194770d1e91040c7daf291817fd1170d3e",
     "resume.py": "445070b71550abf2efb453521876cb75061855dfdc772860ddf5d637e64868a8",
-    "graph_builder.py": "b3cc7dceaf6d561c3cb05c68de85305b19d0add2f67a614fe0058f0719b25e82",
+    # graph_builder.py hash updated in Phase 9: calls mlflow_setup.enable_tracing()
+    # once at graph build time (mlflow.langchain.autolog()) -- 3 lines added, nothing else changed.
+    "graph_builder.py": "788e8be424c4ae3399981d6df78cb1735f8237a049357cb341d512b43ee788ed",
 }
 
 print("--- 0. Untouched-files integrity check ---")
