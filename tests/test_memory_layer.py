@@ -62,14 +62,14 @@ EXPECTED_HASHES = {
     # Phase 1-5 -- never touched, checked since the MCP phase
     # nodes.py hash updated in Phase 8: memory_lookup_node/finalize_node now
     # import from structured_memory.py/vector_memory.py instead of memory.py.
-    "nodes.py": "114af420bd9c30d9f744160d34bc3b9966acd0e7c38d5c6aae4eaaf66bbcb51f",
-    "state.py": "11f074992b03d9ffbb908e4de1722a660e74699ec6eb3f45a406c4dc09f6a6f2",
-    "memory.py": "182a259474798ccafa5efbad19f9a5b6c7401925dbdcfe63e016d51e957cdfce",
-    "education_maps.py": "803024213b617f60e809ec8e045ad0194770d1e91040c7daf291817fd1170d3e",
-    "resume.py": "445070b71550abf2efb453521876cb75061855dfdc772860ddf5d637e64868a8",
+    "nodes.py": "3531645aec66ac9d3df4331bf52735388ce62e2c8eb75f5b2d56eba500d6cfb3",
+    "state.py": "df71b28e24d815183891347cf4b1ff238a3e03ad9192105000b41e41bdec8d2d",
+    "memory.py": "f51e64d21d01ac869cb9f81df28ddf45134435f31fc1af0284b4066a102f80e2",
+    "education_maps.py": "a2e190e5f41bd0e6a80dbe59553832254ff0765dc870d5e7cf0ed2d845651f04",
+    "resume.py": "915bb513a4a5f269a39d3acfa75c7a04ccf855bff0595c843fd15b9d14691ff5",
     # graph_builder.py hash updated in Phase 9: calls mlflow_setup.enable_tracing()
     # once at graph build time (mlflow.langchain.autolog()) -- 3 lines added, nothing else changed.
-    "graph_builder.py": "788e8be424c4ae3399981d6df78cb1735f8237a049357cb341d512b43ee788ed",
+    "graph_builder.py": "835f510a2f1fadc7a70359606c93aa95fdf5aa8faa9a9b5ad75d40e4d973a139",
     # Phase 6 -- committed, should now also stay untouched
     "calendar_store.py": "b886b81b0ca870ad54c3a19053430dd6252c6560027ea52346af6d4a4a59706b",
     "mcp_server.py": "23685fbfa552f0da5f8382dfa10c7b6dc179a1f338c93882e68d953e055af6a7",
@@ -83,7 +83,13 @@ for filename, expected_hash in EXPECTED_HASHES.items():
         check(f"{filename} exists", False, True)
         continue
     with open(full_path, "rb") as f:
-        actual_hash = hashlib.sha256(f.read()).hexdigest()
+        # Normalize CRLF -> LF before hashing: this repo is edited on Windows
+        # (CRLF) but CI runs on a Linux runner, whose git checkout can hand
+        # back LF line endings for the exact same content. Hashing raw bytes
+        # would make every file falsely appear changed cross-platform even
+        # when nothing in the code differs -- normalizing first makes the
+        # hash content-only, not whitespace-convention-only.
+        actual_hash = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
     check(f"{filename} unchanged", actual_hash, expected_hash)
 
 
