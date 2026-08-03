@@ -60,7 +60,9 @@ REPO_ROOT = next(
 
 EXPECTED_HASHES = {
     # Phase 1-5 -- never touched, checked since the MCP phase
-    "nodes.py": "61d6d1ab532bb14213b59d94aec9125b30d2408e00fffe5bc2fcaa8980cebc26",
+    # nodes.py hash updated in Phase 8: memory_lookup_node/finalize_node now
+    # import from structured_memory.py/vector_memory.py instead of memory.py.
+    "nodes.py": "114af420bd9c30d9f744160d34bc3b9966acd0e7c38d5c6aae4eaaf66bbcb51f",
     "state.py": "11f074992b03d9ffbb908e4de1722a660e74699ec6eb3f45a406c4dc09f6a6f2",
     "memory.py": "182a259474798ccafa5efbad19f9a5b6c7401925dbdcfe63e016d51e957cdfce",
     "education_maps.py": "803024213b617f60e809ec8e045ad0194770d1e91040c7daf291817fd1170d3e",

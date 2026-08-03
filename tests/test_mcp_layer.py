@@ -55,7 +55,17 @@ def check_true(label, condition):
 # a side effect of this change set.
 
 EXPECTED_HASHES = {
-    "nodes.py": "61d6d1ab532bb14213b59d94aec9125b30d2408e00fffe5bc2fcaa8980cebc26",
+    # nodes.py hash updated in Phase 8: memory_lookup_node/finalize_node now
+    # import from structured_memory.py/vector_memory.py instead of memory.py
+    # (2-line import swap + finalize_node writing to vector_memory too).
+    # Hash updated again same phase: the top-level `import vector_memory`
+    # caused a circular import (vector_memory.py imports `embedder` back
+    # from nodes.py, which isn't defined until later in the file) --
+    # depending on which module imported nodes.py first, this either worked
+    # by luck or raised ImportError. Fixed by moving the import inside
+    # finalize_node (deferred import), which is immune to import order.
+    # See test_memory_wiring.py for the phase that made this change.
+    "nodes.py": "114af420bd9c30d9f744160d34bc3b9966acd0e7c38d5c6aae4eaaf66bbcb51f",
     "state.py": "11f074992b03d9ffbb908e4de1722a660e74699ec6eb3f45a406c4dc09f6a6f2",
     "memory.py": "182a259474798ccafa5efbad19f9a5b6c7401925dbdcfe63e016d51e957cdfce",
     "education_maps.py": "803024213b617f60e809ec8e045ad0194770d1e91040c7daf291817fd1170d3e",

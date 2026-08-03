@@ -39,6 +39,14 @@ def _is_unresolved_company(company: Optional[str]) -> bool:
     return company.strip().lower() in _UNRESOLVED_MARKERS
 
 
+def is_unresolved_company(company: Optional[str]) -> bool:
+    """Public wrapper around the same check save_company_memory/
+    get_company_memory use internally -- lets callers (e.g. nodes.py)
+    decide whether a company value is real before doing anything company-
+    keyed with it, like writing to vector_memory."""
+    return _is_unresolved_company(company)
+
+
 @contextmanager
 def _connect():
     conn = sqlite3.connect(DB_FILE)

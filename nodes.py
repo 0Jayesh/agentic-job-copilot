@@ -6,7 +6,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 import re
 from education_maps import extract_education_tokens
-from memory import save_company_memory, get_company_memory
+from structured_memory import save_company_memory, get_company_memory, is_unresolved_company
 
 # llm = ChatGoogleGenerativeAI(model="gemini-3-flash-preview")
 # llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash")
@@ -409,6 +409,13 @@ def human_review_node(state: AgentState) -> AgentState:
     return state
 
 def finalize_node(state: AgentState) -> AgentState:
+    # Deferred import: vector_memory.py imports `embedder` back from this
+    # module. Importing it here (at call time) instead of at the top of the
+    # file avoids a circular-import failure that depends on which module
+    # happens to import nodes.py first -- by the time finalize_node is
+    # actually called, nodes.py is always already fully loaded.
+    import vector_memory
+
     approved = state.get("approved")
 
     if state.get("needs_followup") is False:
@@ -421,7 +428,17 @@ def finalize_node(state: AgentState) -> AgentState:
         state["status"] = "pending_approval"
 
     note = f"Fit score {state.get('fit_score')}, status: {state['status']}"
-    save_company_memory(state.get("company"), note)
+    company = state.get("company")
+    row_id = save_company_memory(company, note)
+
+    if not is_unresolved_company(company):
+        vector_memory.add_memory(
+            company=company,
+            note=note,
+            fit_score=state.get("fit_score"),
+            status=state["status"],
+            sql_row_id=row_id,
+        )
 
     print(f"\n[DEBUG] Finalized. Status: {state['status']}")
     return state
