@@ -173,6 +173,20 @@ fake_mlflow_setup = types.ModuleType("mlflow_setup")
 fake_mlflow_setup._tracing_enabled = True
 sys.modules["mlflow_setup"] = fake_mlflow_setup
 
+fake_resume_document = types.ModuleType("resume_document")
+fake_resume_document.parse_resume_document = lambda file_path: {
+    "extracted_text": "EDUCATION\nBTech Computer Science\nEXPERIENCE\nSoftware Engineer",
+    "source": "gemini_document_understanding",
+    "status": "ok",
+    "error": None,
+}
+sys.modules["resume_document"] = fake_resume_document
+
+# calendar_store.py has no heavy dependencies (stdlib json/os/datetime only),
+# so it's imported for real rather than faked -- isolated via its
+# CALENDAR_FILE, same pattern as test_mcp_layer.py used for this exact module.
+import calendar_store
+
 # graph_viz's save_static_diagram writes a real (tiny) file so Streamlit's
 # actual image/text-loading code has something real to read -- a mocked
 # return value alone would make st.image()/st.code() fail on a
@@ -200,7 +214,7 @@ at = AppTest.from_file(APP_PATH)
 at.run()
 
 check_true("app runs without raising an exception", not at.exception)
-check("exactly 4 tabs rendered", len(at.tabs), 4)
+check("exactly 5 tabs rendered", len(at.tabs), 5)
 
 
 # ===========================================================================
@@ -350,6 +364,53 @@ check_true("app runs without exception after running the ReAct demo", not at6.ex
 after_run_write = " ".join(str(getattr(el, "value", "")) for el in getattr(at6.tabs[3], "write", []))
 after_run_success = " ".join(str(getattr(el, "value", "")) for el in getattr(at6.tabs[3], "success", []))
 check_true("the mocked final answer is displayed", "Great fit, apply now" in after_run_success)
+
+
+# ===========================================================================
+# 7. More Tools tab -- calendar conflict check (real calendar_store.py,
+# isolated file). PDF upload can't be driven through AppTest (no fake-file
+# API for st.file_uploader), so that half is only smoke-tested by the tab
+# rendering without exception -- the underlying resume_document.py logic
+# already has its own coverage elsewhere.
+# ===========================================================================
+print("\n--- 7. More Tools tab: calendar conflict check ---")
+
+TEST_CAL_FILE = "test_streamlit_calendar.json"
+_orig_cal_file = calendar_store.CALENDAR_FILE
+calendar_store.CALENDAR_FILE = TEST_CAL_FILE
+if os.path.exists(TEST_CAL_FILE):
+    os.remove(TEST_CAL_FILE)
+
+at7 = AppTest.from_file(APP_PATH)
+at7.run()
+check_true("app runs without exception on the More Tools tab", not at7.exception)
+
+date_inputs = at7.tabs[4].date_input
+check_true("the calendar date input exists", len(date_inputs) == 1)
+text_inputs_tab4 = at7.tabs[4].text_input
+check_true("the 'what to schedule' text input exists", len(text_inputs_tab4) >= 1)
+
+text_inputs_tab4[0].input("Test Interview").run(timeout=15)
+check_buttons = [b for b in at7.tabs[4].button if "Check Conflict" in (b.label or "")]
+check_true("a 'Check Conflict' button exists", len(check_buttons) == 1)
+check_buttons[0].click().run(timeout=15)
+
+check_true("app runs without exception after checking the calendar", not at7.exception)
+success_msgs = " ".join(str(getattr(el, "value", "")) for el in getattr(at7.tabs[4], "success", []))
+check_true("first booking on a date reports no conflict", "No conflict" in success_msgs)
+
+# second check on the SAME date should now report a conflict
+at7b = AppTest.from_file(APP_PATH)
+at7b.run()
+at7b.tabs[4].text_input[0].input("Another Interview").run(timeout=15)
+check_buttons_2 = [b for b in at7b.tabs[4].button if "Check Conflict" in (b.label or "")]
+check_buttons_2[0].click().run(timeout=15)
+warning_msgs = " ".join(str(getattr(el, "value", "")) for el in getattr(at7b.tabs[4], "warning", []))
+check_true("second booking on the same date reports a conflict", "Conflict" in warning_msgs)
+
+if os.path.exists(TEST_CAL_FILE):
+    os.remove(TEST_CAL_FILE)
+calendar_store.CALENDAR_FILE = _orig_cal_file
 
 
 # ===========================================================================

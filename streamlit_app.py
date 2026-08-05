@@ -18,6 +18,8 @@ checkpointer keeps each visitor's in-progress run isolated from everyone
 else's -- this is exactly what MemorySaver + thread_id already gives us,
 just wired to a UI instead of a test script's hardcoded thread_id.
 """
+import os
+import tempfile
 import uuid
 
 from dotenv import load_dotenv
@@ -32,8 +34,18 @@ import graph_viz
 import react_from_scratch
 import golden_set
 import mlflow_setup
+import resume_document
+import calendar_store
 
 st.set_page_config(page_title="Job Search Copilot", page_icon="🧭", layout="wide")
+
+st.markdown("<h1 style='text-align: center;margin-bottom: 24px'>🧭 Job Search Copilot</h1>", unsafe_allow_html=True)
+st.caption(
+    "An agentic job-search assistant: parses postings, scores fit against a resume, "
+    "drafts replies with human-in-the-loop approval, remembers company history, and "
+    "exposes the underlying agent mechanics (MCP tools, ReAct loop, tracing, eval) "
+    "for inspection."
+)
 
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
@@ -42,8 +54,8 @@ if "last_result" not in st.session_state:
 if "awaiting_approval" not in st.session_state:
     st.session_state.awaiting_approval = False
 
-tab_score, tab_memory, tab_graph, tab_advanced = st.tabs(
-    ["Score a Job", "Company Memory", "Graph Diagram", "Advanced"]
+tab_score, tab_memory, tab_graph, tab_advanced, tab_tools = st.tabs(
+    ["📄 Score a Job", "🧠 Company Memory", "🕸️ Graph Diagram", "🧪 Advanced", "🛠️ More Tools"]
 )
 
 
@@ -268,3 +280,66 @@ with tab_advanced:
             "similarity search (see the Company Memory tab) -- both wired into the "
             "real graph's human-in-the-loop finalize step, not just standalone."
         )
+
+
+# ===========================================================================
+# TAB 5 -- More Tools: PDF resume upload (multimodal ingestion) + calendar
+# conflict check. Two more previously-built, previously-invisible pieces.
+# Deliberately does NOT import mcp_server.py directly -- that module pulls
+# in the `mcp` package, whose exact import path was already flagged as a
+# risk; calendar_store.py underneath check_calendar_conflict has no such
+# dependency, so this calls it directly instead.
+# ===========================================================================
+with tab_tools:
+    st.header("Resume Upload -- PDF Document Understanding")
+    st.caption(
+        "Upload a PDF resume to see the project's multimodal ingestion path -- Gemini "
+        "native document understanding, with a local OCR fallback if that fails. This "
+        "only extracts text for display; it does NOT change which resume the Score a "
+        "Job tab scores against. Uses a small amount of shared API quota."
+    )
+
+    uploaded_pdf = st.file_uploader("Upload a PDF resume", type=["pdf"])
+    if uploaded_pdf is not None and st.button("Extract Text", type="primary"):
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(uploaded_pdf.read())
+                tmp_path = tmp.name
+
+            with st.spinner("Extracting text (Gemini document understanding, OCR fallback if needed)..."):
+                extraction = resume_document.parse_resume_document(tmp_path)
+
+            if extraction["status"] == "ok":
+                st.success(f"Extracted via: {extraction['source']}")
+                st.text_area("Extracted text", value=extraction["extracted_text"], height=250)
+            else:
+                st.error(f"Extraction failed: {extraction.get('error')}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    st.divider()
+    st.header("Calendar Conflict Check")
+    st.caption(
+        "Checks a candidate interview date against previously scheduled interviews. "
+        "No API calls -- purely local logic. Booking data is separate from the "
+        "Score a Job flow (that flow doesn't currently call this automatically)."
+    )
+
+    check_date = st.date_input("Interview date to check")
+    check_label = st.text_input("What to schedule if the date is free (optional)")
+
+    if st.button("Check Conflict"):
+        date_str = check_date.isoformat()
+        existing = calendar_store.get_events_on(date_str)
+
+        if existing:
+            st.warning(f"Conflict on {date_str}: {existing}")
+            alternatives = calendar_store.suggest_alternatives(date_str, count=3)
+            st.write("Suggested alternative dates:", alternatives)
+        elif check_label:
+            calendar_store.add_event(date_str, check_label)
+            st.success(f"No conflict -- booked '{check_label}' on {date_str}.")
+        else:
+            st.success(f"No conflict on {date_str}.")
