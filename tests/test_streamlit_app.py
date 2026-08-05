@@ -65,10 +65,16 @@ EXPECTED_HASHES = {
     "mcp_server.py": "23685fbfa552f0da5f8382dfa10c7b6dc179a1f338c93882e68d953e055af6a7",
     "models.py": "8f47510dcd3424969d234e84427ae85c56abb3748d655325b17eea55ccac6476",
     "resume_document.py": "d0b80690cd6c138d423805cfbb506449a678cea000c965f69fdcfa2ed0331fe0",
-    "structured_memory.py": "d1f84e5417501d4b03300db7472bff46140d1dd9b3ad24c0fef3940541a1c22f",
+    # structured_memory.py hash updated: get_company_memory_detailed() now
+    # does a case-insensitive substring match instead of exact equality (UI
+    # search fix -- memory_lookup_node's exact-match core lookup is untouched).
+    "structured_memory.py": "09e69326f59daf936eb40c45f1b559aeba6c5cb7b68b2a770f46ff01961771e5",
     "vector_memory.py": "ab04fad35af7935ff5c9ee0b0f92c0e8a4022331e5d161a8d932daad7d88541b",
     "graph_viz.py": "ff4e694684db4a62bc9502da7648a4472b21778cfe7227bdfc91023996768a1b",
-    "react_from_scratch.py": "75679b8ae192b99520b9f1d0f0ba578bf090e13022c6b143aaa376356541f1c7",
+    # react_from_scratch.py hash updated: added run_react_loop_steps(), a
+    # sibling function returning structured step data for the new ReAct
+    # Demo tab. run_react_loop() itself is completely untouched.
+    "react_from_scratch.py": "a6683018adf1ea3fe390b1ee226e93b13420ca8e99224105304deb05b6aeae0f",
 }
 
 for filename, expected_hash in EXPECTED_HASHES.items():
@@ -112,14 +118,60 @@ sys.modules["graph_builder"] = fake_graph_builder
 
 fake_structured_memory = types.ModuleType("structured_memory")
 fake_structured_memory.get_company_memory_detailed = lambda company: (
-    [{"created_at": "2026-08-01T00:00:00", "note": f"Fake note for {company}"}]
-    if company == "Acme"
+    [{"company": "Acme", "created_at": "2026-08-01T00:00:00", "note": f"Fake note for {company}"}]
+    if company.lower() in "acme"
     else []
 )
 fake_structured_memory.query_low_fit_no_followup = lambda threshold=60.0: [
     {"company": "LowFitCo", "fit_score": 20.0, "created_at": "2026-08-01T00:00:00"}
 ]
 sys.modules["structured_memory"] = fake_structured_memory
+
+fake_vector_memory = types.ModuleType("vector_memory")
+fake_vector_memory.query_similar = lambda query_text, n_results=5: [
+    {
+        "id": "note-1",
+        "note": "Rejected for missing cloud experience",
+        "metadata": {"company": "CloudCo"},
+        "distance": 0.12,
+    }
+]
+sys.modules["vector_memory"] = fake_vector_memory
+
+fake_react_from_scratch = types.ModuleType("react_from_scratch")
+
+
+def _fake_run_react_loop_steps(query, max_iterations=5):
+    return {
+        "steps": [
+            {
+                "response_text": "Thought: scoring it.\nAction: match_resume\nAction Input: fake JD",
+                "action": "match_resume",
+                "action_input": "fake JD",
+                "observation": "Fit score: 90. Matched: [python]. Missing: [].",
+            },
+            {
+                "response_text": "Thought: done.\nFinal Answer: Great fit, apply now.",
+                "action": None,
+                "action_input": None,
+                "observation": None,
+            },
+        ],
+        "final_answer": "Great fit, apply now.",
+        "stopped_reason": None,
+    }
+
+
+fake_react_from_scratch.run_react_loop_steps = _fake_run_react_loop_steps
+sys.modules["react_from_scratch"] = fake_react_from_scratch
+
+fake_golden_set = types.ModuleType("golden_set")
+fake_golden_set.GOLDEN_SET = [{"id": f"case_{i}"} for i in range(12)]
+sys.modules["golden_set"] = fake_golden_set
+
+fake_mlflow_setup = types.ModuleType("mlflow_setup")
+fake_mlflow_setup._tracing_enabled = True
+sys.modules["mlflow_setup"] = fake_mlflow_setup
 
 # graph_viz's save_static_diagram writes a real (tiny) file so Streamlit's
 # actual image/text-loading code has something real to read -- a mocked
@@ -148,7 +200,7 @@ at = AppTest.from_file(APP_PATH)
 at.run()
 
 check_true("app runs without raising an exception", not at.exception)
-check("exactly 3 tabs rendered", len(at.tabs), 3)
+check("exactly 4 tabs rendered", len(at.tabs), 4)
 
 
 # ===========================================================================
@@ -182,6 +234,10 @@ check("Role metric shows the parsed role", metrics[1].value, "Software Engineer"
 # Approve button should be present since status is pending_approval with a draft
 approve_buttons = [b for b in at.tabs[0].button if "Approve" in (b.label or "")]
 check_true("an Approve button is rendered while awaiting approval", len(approve_buttons) >= 1)
+check_true(
+    "the Approve button's label no longer implies it sends an email (was 'Approve and send')",
+    approve_buttons and approve_buttons[0].label == "Approve",
+)
 
 fake_graph.next_result = {
     "company": "Acme",
@@ -222,6 +278,29 @@ at.tabs[1].text_input[0].input("Acme").run(timeout=15)
 check_true("app runs without exception on the memory tab", not at.exception)
 all_text = " ".join(str(getattr(el, "value", "")) for el in at.tabs[1].markdown)
 check_true("company memory tab surfaces the fake note for a known company", "Fake note for Acme" in all_text)
+check_true("result shows which company variant it came from", "Acme" in all_text)
+
+# 4a-bis. partial match -- the actual fix: typing a FRAGMENT of the company
+# name, not the exact stored string, should still find it. This reproduces
+# the real bug (searching "Simelabs" missed "Simelabs / Astek") in miniature.
+at_partial = AppTest.from_file(APP_PATH)
+at_partial.run()
+at_partial.tabs[1].text_input[0].input("cme").run(timeout=15)  # fragment, not "Acme"
+partial_text = " ".join(str(getattr(el, "value", "")) for el in at_partial.tabs[1].markdown)
+check_true("a partial/fragment search still finds the company (the actual fix)", "Fake note for cme" in partial_text)
+
+# 4b. semantic search (Chroma) -- this is the actual point of Phase 7's
+# vector_memory.py, previously built but never called from the UI at all.
+at2 = AppTest.from_file(APP_PATH)
+at2.run()
+semantic_inputs = [ti for ti in at2.tabs[1].text_input if ti.key == "semantic_query"]
+check_true("the semantic search input exists", len(semantic_inputs) == 1)
+semantic_inputs[0].input("missing cloud experience").run(timeout=15)
+
+check_true("app runs without exception after a semantic search", not at2.exception)
+semantic_text = " ".join(str(getattr(el, "value", "")) for el in at2.tabs[1].markdown)
+check_true("semantic search surfaces a result from a DIFFERENT company than the exact-match search", "CloudCo" in semantic_text)
+check_true("semantic search result includes the note text", "Rejected for missing cloud experience" in semantic_text)
 
 
 # ===========================================================================
@@ -238,9 +317,39 @@ if code_blocks:
     check_true("rendered mermaid source contains the graph structure", "parse --> score" in code_blocks[0].value)
 
 
-# cleanup
-if os.path.exists(FAKE_MMD_PATH):
-    os.remove(FAKE_MMD_PATH)
+# (fixture cleanup moved to the very end of the file -- every AppTest run
+# re-executes ALL tabs' code, including tab_graph's, so later sections
+# still need this file to exist)
+
+
+# ===========================================================================
+# 6. Advanced tab -- ReAct demo (mocked) + capability scorecard
+# ===========================================================================
+print("\n--- 6. Advanced tab: ReAct demo + capability scorecard ---")
+at6 = AppTest.from_file(APP_PATH)
+at6.run()
+
+check_true("app runs without exception on the Advanced tab", not at6.exception)
+
+# 6a. capability scorecard renders with real (mocked) live values, not just
+# static filler -- confirms golden_set.GOLDEN_SET and
+# mlflow_setup._tracing_enabled are actually read, not hardcoded.
+advanced_text = " ".join(str(getattr(el, "value", "")) for el in at6.tabs[3].markdown)
+advanced_write_text = " ".join(str(getattr(el, "value", "")) for el in getattr(at6.tabs[3], "write", []))
+combined = advanced_text + advanced_write_text
+check_true("scorecard shows the live golden-set case count (12)", "12" in combined)
+check_true("scorecard shows the live MLflow tracing status (Enabled)", "Enabled" in combined)
+
+# 6b. running the ReAct demo actually calls run_react_loop_steps and
+# renders its steps + final answer
+run_buttons = [b for b in at6.tabs[3].button if "Run ReAct Demo" in (b.label or "")]
+check_true("a 'Run ReAct Demo' button exists", len(run_buttons) == 1)
+run_buttons[0].click().run(timeout=15)
+
+check_true("app runs without exception after running the ReAct demo", not at6.exception)
+after_run_write = " ".join(str(getattr(el, "value", "")) for el in getattr(at6.tabs[3], "write", []))
+after_run_success = " ".join(str(getattr(el, "value", "")) for el in getattr(at6.tabs[3], "success", []))
+check_true("the mocked final answer is displayed", "Great fit, apply now" in after_run_success)
 
 
 # ===========================================================================

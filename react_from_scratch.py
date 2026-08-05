@@ -89,6 +89,55 @@ def run_react_loop(user_query: str, verbose: bool = True) -> str:
     return "Stopped: exceeded max iterations without a Final Answer."
 
 
+def run_react_loop_steps(user_query: str, max_iterations: int = MAX_ITERATIONS) -> dict:
+    """Same loop as run_react_loop(), but returns structured step records
+    instead of printing -- built for the Streamlit ReAct demo tab, which
+    needs to render each Thought/Action/Observation as it happens rather
+    than reading them off stdout. Deliberately a separate function so
+    run_react_loop()'s already-tested behavior (verbose printing, exact
+    "Stopped: ..." return strings) is untouched by this addition.
+
+    Returns {"steps": [...], "final_answer": str | None, "stopped_reason": str | None}.
+    Each step dict has: response_text, action, action_input, observation
+    (observation is None on the final step, since a Final Answer step
+    never calls the tool).
+    """
+    transcript = f"{SYSTEM_PROMPT}\n\nUser question: {user_query}\n"
+    steps = []
+
+    for _ in range(max_iterations):
+        response_text = invoke_with_fallback(transcript) or ""
+        step_record = {
+            "response_text": response_text,
+            "action": None,
+            "action_input": None,
+            "observation": None,
+        }
+
+        parsed = parse_step(response_text)
+
+        if parsed["final_answer"]:
+            steps.append(step_record)
+            return {"steps": steps, "final_answer": parsed["final_answer"], "stopped_reason": None}
+
+        if parsed["action"] == "match_resume" and parsed["action_input"]:
+            observation = match_resume(parsed["action_input"])
+            step_record["action"] = parsed["action"]
+            step_record["action_input"] = parsed["action_input"]
+            step_record["observation"] = observation
+            steps.append(step_record)
+            transcript += f"\n{response_text}\nObservation: {observation}\n"
+        else:
+            steps.append(step_record)
+            return {
+                "steps": steps,
+                "final_answer": None,
+                "stopped_reason": "Could not parse a valid Action or Final Answer.",
+            }
+
+    return {"steps": steps, "final_answer": None, "stopped_reason": "Exceeded max iterations without a Final Answer."}
+
+
 if __name__ == "__main__":
     result = run_react_loop(
         "Score this job against my resume and tell me if I should apply: "

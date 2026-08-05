@@ -62,7 +62,10 @@ EXPECTED_HASHES = {
     "mcp_server.py": "23685fbfa552f0da5f8382dfa10c7b6dc179a1f338c93882e68d953e055af6a7",
     "models.py": "8f47510dcd3424969d234e84427ae85c56abb3748d655325b17eea55ccac6476",
     "resume_document.py": "d0b80690cd6c138d423805cfbb506449a678cea000c965f69fdcfa2ed0331fe0",
-    "structured_memory.py": "d1f84e5417501d4b03300db7472bff46140d1dd9b3ad24c0fef3940541a1c22f",
+    # structured_memory.py hash updated: get_company_memory_detailed() now
+    # does a case-insensitive substring match instead of exact equality (UI
+    # search fix -- memory_lookup_node's exact-match core lookup is untouched).
+    "structured_memory.py": "09e69326f59daf936eb40c45f1b559aeba6c5cb7b68b2a770f46ff01961771e5",
     "vector_memory.py": "ab04fad35af7935ff5c9ee0b0f92c0e8a4022331e5d161a8d932daad7d88541b",
 }
 

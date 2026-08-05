@@ -148,6 +148,30 @@ check_true("detailed rows carry fit_score/status/created_at", all(
     "fit_score" in row and "status" in row and "created_at" in row for row in detailed
 ))
 
+# 1e. fuzzy match fix -- reproduces the exact real-world bug observed live:
+# the LLM parsed the same real company as "Simelabs" once and
+# "Simelabs / Astek" another time, and the old exact-match search silently
+# missed one of them depending on what you typed.
+structured_memory.save_company_memory("Simelabs", "First run, parsed as just Simelabs", fit_score=86.7, status="approved_ready_to_send")
+structured_memory.save_company_memory("Simelabs / Astek", "Second run, parsed with suffix", fit_score=80.0, status="approved_ready_to_send")
+
+exact_search = structured_memory.get_company_memory_detailed("Simelabs / Astek")
+check("exact match still works", len(exact_search), 1)
+
+partial_search = structured_memory.get_company_memory_detailed("Simelabs")
+check_true(
+    "partial search now finds BOTH company-name variants (the actual bug fix)",
+    len(partial_search) == 2,
+)
+found_companies = {row["company"] for row in partial_search}
+check("both variants are distinguishable via the returned company field", found_companies, {"Simelabs", "Simelabs / Astek"})
+
+case_insensitive_search = structured_memory.get_company_memory_detailed("simelabs")
+check_true("search is case-insensitive too", len(case_insensitive_search) == 2)
+
+unrelated_search = structured_memory.get_company_memory_detailed("TestCorp")
+check("unrelated company search is unaffected by the fuzzy-match change", len(unrelated_search), 2)
+
 # cleanup + restore
 if os.path.exists(TEST_DB_FILE):
     os.remove(TEST_DB_FILE)

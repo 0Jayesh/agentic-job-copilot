@@ -58,7 +58,10 @@ EXPECTED_HASHES = {
     "mcp_server.py": "23685fbfa552f0da5f8382dfa10c7b6dc179a1f338c93882e68d953e055af6a7",
     "models.py": "8f47510dcd3424969d234e84427ae85c56abb3748d655325b17eea55ccac6476",
     "resume_document.py": "d0b80690cd6c138d423805cfbb506449a678cea000c965f69fdcfa2ed0331fe0",
-    "structured_memory.py": "d1f84e5417501d4b03300db7472bff46140d1dd9b3ad24c0fef3940541a1c22f",
+    # structured_memory.py hash updated: get_company_memory_detailed() now
+    # does a case-insensitive substring match instead of exact equality (UI
+    # search fix -- memory_lookup_node's exact-match core lookup is untouched).
+    "structured_memory.py": "09e69326f59daf936eb40c45f1b559aeba6c5cb7b68b2a770f46ff01961771e5",
     "vector_memory.py": "ab04fad35af7935ff5c9ee0b0f92c0e8a4022331e5d161a8d932daad7d88541b",
     "graph_viz.py": "ff4e694684db4a62bc9502da7648a4472b21778cfe7227bdfc91023996768a1b",
 }
@@ -159,6 +162,50 @@ infinite_action = "Thought: still working.\nAction: match_resume\nAction Input: 
 rfs.invoke_with_fallback = _mock_llm_sequence([infinite_action] * rfs.MAX_ITERATIONS)
 result_maxed = rfs.run_react_loop("test query", verbose=False)
 check("exceeding max iterations stops with a clear message", result_maxed, "Stopped: exceeded max iterations without a Final Answer.")
+
+rfs.invoke_with_fallback = _orig_invoke
+rfs.match_resume = _orig_match_resume
+
+
+# ===========================================================================
+# 4. run_react_loop_steps() -- structured version for the UI, same control
+#    flow as run_react_loop() but returns step records instead of printing
+# ===========================================================================
+print("\n--- 4. run_react_loop_steps() (scripted fake LLM responses) ---")
+
+# 4a. happy path: one action step (with observation), one final-answer step
+rfs.invoke_with_fallback = _mock_llm_sequence(
+    [
+        "Thought: let me score it.\nAction: match_resume\nAction Input: some JD text",
+        "Thought: got the score.\nFinal Answer: Great fit, you should apply.",
+    ]
+)
+rfs.match_resume = lambda job_description: "Fit score: 90. Matched: [python]. Missing: []."
+result = rfs.run_react_loop_steps("Should I apply to this job?")
+rfs.invoke_with_fallback = _orig_invoke
+rfs.match_resume = _orig_match_resume
+
+check("happy path returns the final answer", result["final_answer"], "Great fit, you should apply.")
+check("happy path has no stopped_reason", result["stopped_reason"], None)
+check("happy path recorded exactly 2 steps", len(result["steps"]), 2)
+check("step 1 has the action recorded", result["steps"][0]["action"], "match_resume")
+check("step 1 has the observation recorded", result["steps"][0]["observation"], "Fit score: 90. Matched: [python]. Missing: [].")
+check_true("step 2 (final answer) has no action/observation", result["steps"][1]["action"] is None and result["steps"][1]["observation"] is None)
+
+# 4b. malformed response -> stops cleanly with a stopped_reason, no exception
+rfs.invoke_with_fallback = _mock_llm_sequence(["I refuse to follow the format."])
+result_malformed = rfs.run_react_loop_steps("test query")
+rfs.invoke_with_fallback = _orig_invoke
+check("malformed response: final_answer is None", result_malformed["final_answer"], None)
+check_true("malformed response: stopped_reason explains why", "could not parse" in result_malformed["stopped_reason"].lower())
+
+# 4c. exceeds max_iterations -> stops cleanly, doesn't hang
+rfs.invoke_with_fallback = _mock_llm_sequence([infinite_action] * 3)
+result_maxed = rfs.run_react_loop_steps("test query", max_iterations=3)
+rfs.invoke_with_fallback = _orig_invoke
+check("max-iterations case: final_answer is None", result_maxed["final_answer"], None)
+check_true("max-iterations case: stopped_reason explains why", "exceeded max iterations" in result_maxed["stopped_reason"].lower())
+check("max-iterations case recorded exactly 3 steps (the max)", len(result_maxed["steps"]), 3)
 
 rfs.invoke_with_fallback = _orig_invoke
 rfs.match_resume = _orig_match_resume

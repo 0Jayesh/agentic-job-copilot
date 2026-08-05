@@ -27,7 +27,11 @@ import streamlit as st
 
 from graph_builder import app as graph_app
 import structured_memory
+import vector_memory
 import graph_viz
+import react_from_scratch
+import golden_set
+import mlflow_setup
 
 st.set_page_config(page_title="Job Search Copilot", page_icon="🧭", layout="wide")
 
@@ -38,7 +42,9 @@ if "last_result" not in st.session_state:
 if "awaiting_approval" not in st.session_state:
     st.session_state.awaiting_approval = False
 
-tab_score, tab_memory, tab_graph = st.tabs(["Score a Job", "Company Memory", "Graph Diagram"])
+tab_score, tab_memory, tab_graph, tab_advanced = st.tabs(
+    ["Score a Job", "Company Memory", "Graph Diagram", "Advanced"]
+)
 
 
 # ===========================================================================
@@ -105,9 +111,13 @@ with tab_score:
         if st.session_state.awaiting_approval and result.get("draft_reply"):
             st.subheader("Draft reply -- your approval needed")
             st.text_area("Draft", value=result["draft_reply"], height=150, disabled=True)
+            st.caption(
+                "Approving records your decision and finalizes the run -- it does NOT "
+                "actually send an email. Copy the draft above if you want to send it yourself."
+            )
 
             approve_col, reject_col = st.columns(2)
-            if approve_col.button("Approve and send", type="primary"):
+            if approve_col.button("Approve", type="primary"):
                 graph_app.update_state(config, {"approved": True})
                 final = graph_app.invoke(None, config=config)
                 st.session_state.last_result = final
@@ -130,14 +140,34 @@ with tab_memory:
     st.header("Company Memory")
     st.caption("Browse past interactions with a company. No API calls -- reads directly from the structured store.")
 
-    company_query = st.text_input("Company name")
+    company_query = st.text_input("Company name (partial match ok)")
     if company_query:
         notes = structured_memory.get_company_memory_detailed(company_query)
         if notes:
             for row in notes:
-                st.write(f"**{row.get('created_at', '')[:10]}** -- {row.get('note')}")
+                st.write(f"**{row.get('company', '')}** — {row.get('created_at', '')[:10]} -- {row.get('note')}")
         else:
             st.write("No history found for this company yet.")
+
+    st.divider()
+    st.subheader("Semantic search across all past notes")
+    st.caption(
+        "This is embedding-based search (Chroma), not exact text matching -- describe a "
+        "situation in your own words and it finds semantically similar past notes, even "
+        "across different companies. Still no API calls: the embedding model runs locally."
+    )
+    semantic_query = st.text_input(
+        "e.g. \"companies that rejected me for missing cloud experience\"",
+        key="semantic_query",
+    )
+    if semantic_query:
+        similar = vector_memory.query_similar(semantic_query, n_results=5)
+        if similar:
+            for hit in similar:
+                company = hit.get("metadata", {}).get("company", "Unknown")
+                st.write(f"**{company}** (distance {hit.get('distance', 0):.3f}) -- {hit.get('note')}")
+        else:
+            st.write("No notes recorded yet -- run a few analyses in the Score a Job tab first.")
 
     with st.expander("Companies with a low fit score and no follow-up"):
         low_fit = structured_memory.query_low_fit_no_followup(threshold=60.0)
@@ -162,3 +192,79 @@ with tab_graph:
         st.write("PNG rendering unavailable in this environment -- raw Mermaid source below (paste into https://mermaid.live):")
         with open(diagram_path) as f:
             st.code(f.read(), language="text")
+
+
+# ===========================================================================
+# TAB 4 -- Advanced: ReAct demo (spends API quota) + capability scorecard
+# (zero cost, mostly static text describing what else this project builds
+# that has no natural home in a click-through UI)
+# ===========================================================================
+with tab_advanced:
+    st.header("ReAct Agent -- Built From Scratch")
+    st.caption(
+        "A hand-rolled Thought -> Action -> Observation loop -- no LangGraph, no agent "
+        "framework, just raw LLM calls in a while loop, calling the same match_resume "
+        "logic as the Score a Job tab. This is a separate, standalone proof of how "
+        "agent frameworks work underneath. Uses a small amount of shared API quota."
+    )
+
+    react_query = st.text_area(
+        "Ask it to evaluate a job posting",
+        value=(
+            "Score this job against my resume and tell me if I should apply: "
+            "'AI Engineer role at Vertex Labs. Required: TensorFlow, Python, "
+            "LangChain, RAG. Bachelor's in CS. 3+ years experience.'"
+        ),
+        height=100,
+    )
+
+    if st.button("Run ReAct Demo", type="primary"):
+        with st.spinner("Running Thought -> Action -> Observation loop..."):
+            react_result = react_from_scratch.run_react_loop_steps(react_query)
+
+        for i, step in enumerate(react_result["steps"], start=1):
+            with st.expander(f"Step {i}", expanded=True):
+                st.text(step["response_text"])
+                if step["observation"]:
+                    st.info(f"Observation: {step['observation']}")
+
+        if react_result["final_answer"]:
+            st.success(f"Final Answer: {react_result['final_answer']}")
+        elif react_result["stopped_reason"]:
+            st.warning(f"Stopped: {react_result['stopped_reason']}")
+
+    st.divider()
+    st.header("What Else This Project Builds")
+    st.caption("Not everything fits a click-through demo -- here's what's running underneath, verified by its own tests.")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("MCP Server")
+        st.write(
+            "5 Pydantic-typed tools exposed via a custom MCP server: `parse_email`, "
+            "`match_resume`, `draft_reply`, `parse_resume_document` (PDF/OCR), "
+            "`check_calendar_conflict` -- plus 2 orchestration tools demonstrating "
+            "sequential vs. parallel tool-calling explicitly (`process_application`, "
+            "`score_against_resumes`)."
+        )
+
+        st.subheader("Golden-Set Eval + CI")
+        st.write(
+            f"{len(golden_set.GOLDEN_SET)} hand-written test cases run against the real "
+            "pipeline on every push via GitHub Actions -- deliberately includes edge "
+            "cases like an unresolved-company input, not just happy paths."
+        )
+
+    with col2:
+        st.subheader("MLflow Tracing")
+        tracing_status = "Enabled" if mlflow_setup._tracing_enabled else "Not yet enabled this session"
+        st.write(f"`mlflow.langchain.autolog()` status (live check): **{tracing_status}**")
+        st.write("Every node execution and LLM call in this run is traced automatically. View with `mlflow ui`.")
+
+        st.subheader("Memory")
+        st.write(
+            "Dual-store: SQLite for exact/structured queries, Chroma for semantic "
+            "similarity search (see the Company Memory tab) -- both wired into the "
+            "real graph's human-in-the-loop finalize step, not just standalone."
+        )

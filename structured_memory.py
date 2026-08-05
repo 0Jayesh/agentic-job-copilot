@@ -150,18 +150,32 @@ def get_company_memory(company: Optional[str]) -> List[str]:
 
 def get_company_memory_detailed(company: str) -> List[dict]:
     """Structured version returning fit_score/status/created_at alongside
-    the note, for anything that wants more than the plain note string."""
+    the note, for anything that wants more than the plain note string.
+
+    Uses a case-insensitive SUBSTRING match (SQL LIKE), not exact equality.
+    The LLM's parsed company name can vary slightly run to run (observed in
+    practice: "Simelabs" vs "Simelabs / Astek" for the same real company),
+    so exact matching silently misses real history a human searching by
+    hand would expect to find. This is a UI-search convenience only --
+    memory_lookup_node's exact-match lookup (used by the actual graph at
+    write/read time) is intentionally untouched; changing that changes
+    core pipeline behavior and needs its own separate, carefully tested
+    change, not a quiet side effect of fixing a search box.
+
+    Returns `company` in each row too, since a substring match can now
+    return notes filed under more than one company-name variant."""
     if _is_unresolved_company(company):
         return []
     init_db()
+    like_pattern = f"%{company.strip()}%"
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, note, fit_score, status, created_at FROM company_notes
-            WHERE company = ?
+            SELECT id, company, note, fit_score, status, created_at FROM company_notes
+            WHERE company LIKE ? COLLATE NOCASE
             ORDER BY id ASC
             """,
-            (company.strip(),),
+            (like_pattern,),
         ).fetchall()
     return [dict(r) for r in rows]
 
