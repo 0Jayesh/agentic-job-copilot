@@ -208,7 +208,30 @@ with tab_graph:
         st.write("PNG rendering unavailable in this environment -- raw Mermaid source below (paste into https://mermaid.live):")
         with open(diagram_path) as f:
             st.code(f.read(), language="text")
+    st.divider()
+    st.subheader("Execution Path for Your Last Run")
+    st.caption(
+        "The diagram above shows the graph's overall shape -- the same every time. "
+        "This shows which nodes actually ran, in order, for your specific last analysis "
+        "in the 'Score a Job' tab, reconstructed live from LangGraph's checkpoint history "
+        "for your session (thread_id). No API calls -- pure state introspection."
+    )
 
+    if st.session_state.get("last_result"):
+        execution_path = graph_viz.get_execution_path(st.session_state.thread_id)
+        if execution_path:
+            st.success(" → ".join(execution_path))
+            with st.expander("Raw node sequence"):
+                for i, node_name in enumerate(execution_path, start=1):
+                    st.write(f"{i}. `{node_name}`")
+        else:
+            st.info("No checkpoint history found for this session yet.")
+    else:
+        st.info(
+            "Run an analysis in the 'Score a Job' tab first, then come back here to see "
+            "exactly which nodes executed for that run -- e.g. whether it stopped after "
+            "'finalize' with no follow-up needed, or paused at 'human_review' awaiting your approval."
+        )
 
 # ===========================================================================
 # TAB 4 -- Advanced: ReAct demo (spends API quota) + capability scorecard
