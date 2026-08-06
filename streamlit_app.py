@@ -1,3 +1,10 @@
+import sys
+try:
+    __import__("pysqlite3")
+    sys.modules["sqlite3"] = sys.modules["pysqlite3"]
+except ImportError:
+    pass
+
 """
 streamlit_app.py
 
