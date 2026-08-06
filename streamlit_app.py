@@ -1,3 +1,20 @@
+"""
+streamlit_app.py
+Deployment UI (spec section 9 / step 9 of the build order), for HF Spaces
+(Streamlit SDK).
+Deliberately split into two kinds of tabs:
+  - "Score a Job" -- the real thing, calls the actual compiled LangGraph
+    (graph_builder.app), including the real HITL interrupt/approve/reject
+    flow. This is the only tab that spends API quota.
+  - "Company Memory" / "Graph Diagram" -- read-only, zero API cost. Safe
+    for any number of visitors to click around in without touching
+    Gemini/Groq quota, since a public deployment shares that quota across
+    every visitor, not just you.
+Uses one thread_id per browser session (st.session_state), so LangGraph's
+checkpointer keeps each visitor's in-progress run isolated from everyone
+else's -- this is exactly what MemorySaver + thread_id already gives us,
+just wired to a UI instead of a test script's hardcoded thread_id.
+"""
 import sys
 try:
     __import__("pysqlite3")
